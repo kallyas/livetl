@@ -65,18 +65,27 @@ cmd_setup() {
         apt-get -qq install -y ffmpeg >/dev/null 2>&1 || die "could not install ffmpeg"
     fi
 
-    # torch and transformers are preinstalled and intentionally left alone --
-    # pip skips anything already satisfied, so torch is never re-resolved.
-    info "installing dependencies (leaving Colab's torch untouched)"
-    "$PY" -m pip install -q --upgrade \
+    # No --upgrade anywhere here. It is not a safety blanket on Colab, it is
+    # the hazard: it drags preinstalled packages forward and silero-vad would
+    # happily pull a fresh torch that no longer matches the driver. Without it
+    # pip installs only what is genuinely missing.
+    info "installing dependencies (leaving Colab's torch and transformers alone)"
+    "$PY" -m pip install -q \
         faster-whisper \
         silero-vad \
         streamlink \
         yt-dlp \
-        websockets \
-        rich \
         sentencepiece \
         sacremoses >&2
+
+    # rich and websockets already ship with Colab, and several preinstalled
+    # packages pin them hard: google-adk wants websockets<16, langgraph-sdk
+    # <16, bigframes wants rich<14. Taking the newest of each satisfies livetl
+    # but breaks all of those and pip reports a resolver conflict. Hold both
+    # inside Colab's ranges instead -- livetl needs nothing newer, and pinning
+    # here also repairs a runtime an earlier version of this script broke.
+    info "pinning rich/websockets to versions Colab's other packages accept"
+    "$PY" -m pip install -q "rich>=13,<14" "websockets>=15,<16" >&2
 
     # transformers 4.56 renamed from_pretrained's torch_dtype to dtype. The
     # code supports both, so an older preinstalled version is fine and is not
