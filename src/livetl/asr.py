@@ -70,9 +70,14 @@ def is_junk(text: str) -> bool:
 class MLXWhisper:
     name = "mlx"
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, beam_size: int = 1):
         import mlx_whisper  # noqa: F401  (import here so the dep stays optional)
 
+        if beam_size > 1:
+            raise RuntimeError(
+                "mlx-whisper has no beam search decoder (it raises "
+                "NotImplementedError). Use --asr faster for --beam-size > 1."
+            )
         self.repo = MLX_MODELS.get(model, model)
         self._mod = mlx_whisper
         self._model = None
@@ -127,8 +132,11 @@ class MLXWhisper:
 class FasterWhisper:
     name = "faster"
 
-    def __init__(self, model: str, compute_type: str = "auto", device: str = "auto"):
+    def __init__(self, model: str, compute_type: str = "auto", device: str = "auto",
+                 beam_size: int = 1):
         from faster_whisper import WhisperModel
+
+        self.beam_size = beam_size
 
         if device == "auto":
             device = "cuda" if _cuda_available() else "cpu"
@@ -144,7 +152,10 @@ class FasterWhisper:
             audio,
             language=language,
             task=task,
-            beam_size=1,               # realtime: greedy is ~2x faster, barely worse
+            # Greedy by default: ~2-3x cheaper than beam search and barely
+            # worse. Worth raising only when the hardware is idle between
+            # utterances, which on a GPU it usually is.
+            beam_size=self.beam_size,
             temperature=[0.0, 0.2, 0.4],
             condition_on_previous_text=False,
             vad_filter=False,          # we already ran Silero upstream
@@ -166,17 +177,23 @@ def _cuda_available() -> bool:
         return False
 
 
-def load_asr(backend: str, model: str, device: str = "auto", compute_type: str = "auto"):
+def load_asr(backend: str, model: str, device: str = "auto", compute_type: str = "auto",
+             beam_size: int = 1):
     """backend: auto | mlx | faster"""
-    if backend in ("auto", "mlx"):
+    # Only faster-whisper has a beam search decoder, so auto must not pick mlx
+    # when beam search was asked for. An explicit --asr mlx still errors, since
+    # silently ignoring the flag would be worse.
+    prefer_mlx = backend == "mlx" or (backend == "auto" and beam_size <= 1)
+    if prefer_mlx:
         try:
-            engine = MLXWhisper(model)
+            engine = MLXWhisper(model, beam_size)
             log.info("ASR: mlx-whisper (%s)", engine.repo)
             return engine
         except ImportError:
             if backend == "mlx":
                 raise RuntimeError("mlx-whisper not installed: uv sync --extra mlx") from None
             log.info("mlx-whisper unavailable, falling back to faster-whisper")
-    engine = FasterWhisper(model, compute_type, device)
-    log.info("ASR: faster-whisper (%s, %s %s)", model, engine.compute_type, engine.device)
+    engine = FasterWhisper(model, compute_type, device, beam_size)
+    log.info("ASR: faster-whisper (%s, %s %s, beam %d)",
+             model, engine.compute_type, engine.device, beam_size)
     return engine
