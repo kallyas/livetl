@@ -241,6 +241,60 @@ What it does differently from `livetl.sh`:
 - **Always writes `captions.jsonl`**, since a Colab cell is a worse place to
   read scrollback than a file.
 
+#### Getting the most out of the T4
+
+The instinct is to worry about the 15 GB of VRAM, but that is not the
+constraint — `large-v3` in float16 is about 3 GB. The constraint is that this
+pipeline is **latency-bound, not throughput-bound**: it handles one utterance
+at a time and then waits for the speaker, so a T4 running `large-v3-turbo`
+sits idle most of the time. Using the card fully means spending that idle
+capacity on accuracy.
+
+Roughly in order of value per unit of idle GPU:
+
+```python
+!bash colab.sh run https://twitch.tv/CHANNEL --source ja --target en \
+    --model large-v3 --beam-size 5 \
+    --mt nllb --nllb-model facebook/nllb-200-distilled-1.3B --mt-device cuda \
+    --partials --soft-max 4 --timing
+```
+
+- **`--model large-v3`** instead of turbo. Turbo has 4 decoder layers against
+  32 and gives most of the quality for a fraction of the cost — a good trade
+  when compute is scarce, which here it isn't. The gap shows up on exactly what
+  streams are full of: accents, proper nouns, non-English.
+- **`--beam-size 5`.** Greedy decoding is the default because it is 2-3x
+  cheaper, and that matters on CPU. On an idle GPU it is the cheapest accuracy
+  you can buy. faster-whisper only — mlx-whisper has no beam decoder.
+- **A larger MT model.** `nllb-200-distilled-1.3B` is ~2.6 GB in float16 and
+  clearly better than the 600M default on casual speech; both still fit
+  alongside `large-v3`.
+- **`--partials`** roughly doubles ASR load to show interim text. On a T4 that
+  load is free, and it is the single biggest improvement to how responsive the
+  captions *feel*.
+- **`--soft-max 4`** cuts monologues into captions sooner. Costs nothing.
+
+T4-specific notes:
+
+- Turing has strong INT8 tensor cores, so **`--compute-type int8_float16` is
+  often faster than `float16` on a T4** at negligible quality cost. Worth
+  measuring both — it is one flag.
+- Turing predates bfloat16. `--compute-type bfloat16` will not work; that is
+  Ampere and newer.
+- **Watch RTF in the `--timing` output.** It is seconds of compute per second
+  of audio. Keep it under ~0.5 so bursts have headroom; as it approaches 1.0
+  the pipeline starts shedding audio, which shows up as `dropped` in the exit
+  summary. Turn the knobs above up until RTF stops being comfortable.
+- **Several streams at once** is the other way to use the card: one process
+  each, different `--overlay-port`. Each loads its own copy of the weights, so
+  `large-v3` at ~3 GB means three or four concurrent streams on 15 GB.
+- Point `HF_HOME` at mounted Drive, or every fresh runtime re-downloads
+  several gigabytes before it says a word.
+
+Free-tier T4s are preemptible and time-capped, so treat a long session as
+something that will be interrupted rather than something that will keep
+running.
+
 The overlay is the awkward part: Colab has no inbound networking, so it has to
 go through the authenticated port proxy. `bash colab.sh overlay` prints the
 exact steps. The proxy does forward websockets but it is the flakiest piece
