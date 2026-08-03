@@ -44,6 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="faster-whisper only; auto uses CUDA when visible (default: auto)")
     g.add_argument("--compute-type", default="auto",
                    help="faster-whisper quantization: float16 (GPU), int8, int8_float16 …")
+    g.add_argument("--initial-prompt", metavar="TEXT",
+                   help="bias the recognizer's style/vocabulary, e.g. a sentence of "
+                        "Simplified Chinese to stop it alternating scripts")
     g.add_argument("--beam-size", type=int, default=1, metavar="N",
                    help="beam search width; >1 costs ~2-3x compute for better "
                         "accuracy. faster-whisper only (default: 1)")
@@ -186,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         asr = load_asr(args.asr, args.model, args.asr_device, args.compute_type,
-                       args.beam_size)
+                       args.beam_size, args.initial_prompt)
         mt = load_mt(
             mt_backend,
             google_key=args.google_key,
