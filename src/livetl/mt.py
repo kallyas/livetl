@@ -33,6 +33,23 @@ GEN_KWARGS = dict(
 )
 
 
+def _dtype_kwarg() -> str:
+    """Name of from_pretrained's dtype argument for the installed transformers.
+
+    It was renamed torch_dtype -> dtype in 4.56. from_pretrained takes
+    **kwargs, so passing the wrong one raises nothing at all -- it lands in
+    the config and the model quietly loads at full precision, doubling
+    memory. Colab still ships 4.x, so both spellings have to be supported.
+    """
+    from transformers import __version__ as ver
+
+    try:
+        major, minor = (int(part) for part in ver.split(".")[:2])
+    except ValueError:
+        return "dtype"
+    return "dtype" if (major, minor) >= (4, 56) else "torch_dtype"
+
+
 def _tune_generation(model):
     """Clear the config's max_length so max_new_tokens isn't 'conflicting'.
 
@@ -140,10 +157,9 @@ class NLLB:
         self.device = _pick_device(device, torch)
         log.info("loading %s on %s", model, self.device)
         self.tok = AutoTokenizer.from_pretrained(model)
+        dtype = {_dtype_kwarg(): torch.float16 if self.device != "cpu" else torch.float32}
         self.model = _tune_generation(
-            AutoModelForSeq2SeqLM.from_pretrained(
-                model, dtype=torch.float16 if self.device != "cpu" else torch.float32
-            )
+            AutoModelForSeq2SeqLM.from_pretrained(model, **dtype)
         ).to(self.device).eval()
         self._name = model
 
