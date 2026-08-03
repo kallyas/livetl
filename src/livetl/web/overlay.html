@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>livetl overlay</title>
+<style>
+  :root {
+    --size: 34px;
+    --pad: 28px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: transparent;            /* OBS browser source: leave unchecked "shutdown when hidden" */
+    font-family: "Inter", "Helvetica Neue", -apple-system, system-ui, sans-serif;
+    overflow: hidden;
+  }
+  body.solid { background: #0b0d10; }
+  #stage {
+    position: absolute;
+    inset: auto var(--pad) var(--pad) var(--pad);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 10px;
+    max-height: 100%;
+  }
+  .line {
+    font-size: var(--size);
+    font-weight: 700;
+    line-height: 1.28;
+    color: #fff;
+    text-align: center;
+    text-wrap: balance;
+    paint-order: stroke fill;
+    -webkit-text-stroke: 6px rgba(0, 0, 0, .82);
+    text-shadow: 0 2px 14px rgba(0, 0, 0, .55);
+    animation: rise .18s ease-out;
+    transition: opacity .5s linear;
+  }
+  .line .src {
+    display: block;
+    font-size: .58em;
+    font-weight: 500;
+    opacity: .72;
+    -webkit-text-stroke-width: 4px;
+    margin-bottom: 2px;
+  }
+  .line.partial { opacity: .62; font-style: italic; }
+  .line.aged    { opacity: .35; }
+  @keyframes rise { from { transform: translateY(6px); opacity: 0 } to { transform: none } }
+  #status {
+    position: absolute; top: 10px; right: 12px;
+    font: 600 11px/1 ui-monospace, monospace;
+    letter-spacing: .08em; text-transform: uppercase;
+    padding: 5px 9px; border-radius: 999px;
+    color: #fff; background: rgba(0,0,0,.55);
+    transition: opacity .4s; opacity: 0;
+  }
+  #status.show { opacity: 1; }
+  #status.down { background: rgba(190, 40, 40, .85); }
+</style>
+</head>
+<body>
+<div id="status">connecting</div>
+<div id="stage"></div>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const MAX      = +(q.get("lines")   || 3);      // how many finals stay on screen
+  const HOLD     = +(q.get("hold")    || 9) * 1e3; // ms before a line fades out
+  const SHOWSRC  = q.get("source") === "1";
+  if (q.get("bg") === "1") document.body.classList.add("solid");
+  if (q.get("size")) document.documentElement.style.setProperty("--size", q.get("size") + "px");
+
+  const stage = document.getElementById("stage");
+  const status = document.getElementById("status");
+  let partialEl = null;
+
+  const setStatus = (text, down) => {
+    status.textContent = text;
+    status.classList.toggle("down", !!down);
+    status.classList.toggle("show", !!down);
+  };
+
+  function makeLine(cap, partial) {
+    const el = document.createElement("div");
+    el.className = "line" + (partial ? " partial" : "");
+    if (SHOWSRC && cap.source && cap.source !== cap.target) {
+      const s = document.createElement("span");
+      s.className = "src";
+      s.textContent = cap.source;
+      el.appendChild(s);
+    }
+    el.appendChild(document.createTextNode(cap.target || cap.source));
+    return el;
+  }
+
+  function prune() {
+    const finals = [...stage.querySelectorAll(".line:not(.partial)")];
+    finals.slice(0, Math.max(0, finals.length - MAX)).forEach(el => el.remove());
+  }
+
+  function onCaption(cap) {
+    if (!cap.final) {
+      const el = makeLine(cap, true);
+      partialEl ? stage.replaceChild(el, partialEl) : stage.appendChild(el);
+      partialEl = el;
+      return;
+    }
+    if (partialEl) { partialEl.remove(); partialEl = null; }
+    const el = makeLine(cap, false);
+    stage.appendChild(el);
+    prune();
+    setTimeout(() => el.classList.add("aged"), HOLD);
+    setTimeout(() => el.remove(), HOLD + 4000);
+  }
+
+  let backoff = 400;
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/`);
+    ws.onopen = () => { backoff = 400; setStatus("live", false); };
+    ws.onmessage = e => { try { onCaption(JSON.parse(e.data)); } catch (_) {} };
+    ws.onclose = () => {
+      setStatus("reconnecting", true);
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 8000);
+    };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
+</script>
+</body>
+</html>
