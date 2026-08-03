@@ -1,0 +1,44 @@
+# systemd unit for a headless livetl instance.
+#
+#   sudo cp contrib/livetl.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now livetl
+#   journalctl -u livetl -f
+#
+# Set STREAM_URL (and the rest) in /opt/livetl/livetl.env.
+# Use `livetl.sh run`, NOT `--retry`: the Python process already reconnects on
+# its own with the models still loaded, and systemd's Restart= is the outer
+# safety net. Stacking both just adds a redundant supervisor.
+
+[Unit]
+Description=livetl realtime stream translation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=livetl
+Group=livetl
+WorkingDirectory=/opt/livetl
+ExecStart=/opt/livetl/livetl.sh run
+
+# Model cache. Must be writable by User= or every start re-downloads.
+Environment=HF_HOME=/opt/livetl/.cache/huggingface
+
+Restart=always
+RestartSec=10
+# The wrapper forwards SIGTERM to Python, which drains in-flight audio first.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Modest hardening; this process only needs network + its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/livetl
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
