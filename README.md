@@ -208,6 +208,50 @@ Notes on each axis:
   `--overlay-port`. They share the on-disk model cache but not memory, so
   multiply RAM per instance — the GPU path is far more economical here.
 
+### Google Colab
+
+`colab.sh` is a separate launcher for Colab, which is different enough from a
+normal server to need its own path. Set **Runtime > Change runtime type > T4
+GPU** first, then:
+
+```python
+!git clone https://github.com/YOU/transcribe-audio.git
+%cd transcribe-audio
+!bash colab.sh setup
+!bash colab.sh run https://twitch.tv/somechannel --source ja --target en
+```
+
+`bash colab.sh doctor` reports what's installed and, importantly, whether
+CTranslate2 can actually see the GPU.
+
+What it does differently from `livetl.sh`:
+
+- **No venv.** Colab already ships torch built against its exact driver.
+  Creating a venv would pull a second multi-gigabyte torch and risk a CUDA
+  mismatch, so dependencies install into the runtime's own Python and torch and
+  transformers are left untouched.
+- **Sets `LD_LIBRARY_PATH` for CTranslate2.** It dlopens cuBLAS and cuDNN at
+  runtime, and on Colab those live inside the pip `nvidia-*` packages rather
+  than a system CUDA install. Without this it reports zero GPUs and silently
+  runs on CPU — which will not keep up with a live stream.
+- **Defaults to `large-v3-turbo` in float16.** ~15 GB of VRAM holds it (~3 GB)
+  alongside NLLB with room to spare, and the quality gain over `small` is
+  large. Override with `MODEL=medium bash colab.sh run ...`. With no GPU
+  visible it warns and drops to a small CPU model.
+- **Always writes `captions.jsonl`**, since a Colab cell is a worse place to
+  read scrollback than a file.
+
+The overlay is the awkward part: Colab has no inbound networking, so it has to
+go through the authenticated port proxy. `bash colab.sh overlay` prints the
+exact steps. The proxy does forward websockets but it is the flakiest piece
+here — if captions never show up in the overlay, they are still in the cell
+output and in `captions.jsonl`.
+
+Colab is fine for trying this out or translating a stream you're watching now.
+It is not somewhere to run it continuously: sessions are killed after a period
+of inactivity and capped at a handful of hours, and the models re-download on
+every fresh runtime unless you point `HF_HOME` at your mounted Drive.
+
 ### Exposing the overlay
 
 `--overlay-host 0.0.0.0` serves it on all interfaces. **There is no
