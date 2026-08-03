@@ -7,6 +7,24 @@ an OBS text source.
 Everything can run locally (Whisper + Marian/NLLB). Google Cloud Translation is
 available as a drop-in alternative for the translation stage.
 
+> [!WARNING]
+> **This is a personal project. It may be broken at any given moment.**
+>
+> It works on the setup it was built on and has been tested end to end there,
+> but it is not a maintained product: no releases, no support, no stability
+> guarantees, and no promise that any of it still works tomorrow. Expect to
+> read and edit the source to get it running on your machine.
+>
+> It leans on several moving parts it does not control — Twitch and YouTube
+> stream endpoints, streamlink/yt-dlp, ffmpeg, and Hugging Face model repos.
+> Any of those changing will break it, and site changes routinely do.
+>
+> The translations themselves are machine output over machine transcription:
+> errors compound across the two stages, and casual speech, slang and proper
+> nouns come out worst. Do not rely on it for anything that matters. See
+> [Known limitations](#known-limitations) for the specifics that are already
+> understood.
+
 ```
 streamlink/yt-dlp ─▶ ffmpeg ─▶ 16kHz PCM ─▶ Silero VAD ─▶ Whisper ─▶ MT ─▶ sinks
    (pull stream)     (decode)   (frames)   (segment on     (ASR)   (local  (console/
