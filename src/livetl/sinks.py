@@ -42,12 +42,19 @@ class ConsoleSink(Sink):
         self.console = Console()
         self.show_source = show_source
         self.timing = timing
+        # A partial is an in-place preview and only makes sense on a terminal.
+        # In a notebook cell, a pipe or a log file there is nothing to redraw,
+        # so Live appends instead of overwriting and every partial lands as its
+        # own line, burying the finished captions in hundreds of near-identical
+        # ones. Fall back to finals only.
         self._live = None
-        if partials:
+        if partials and self.console.is_terminal:
             from rich.live import Live
 
             self._live = Live(console=self.console, refresh_per_second=8, transient=True)
             self._live.start()
+        elif partials:
+            log.info("partials hidden: stdout is not a terminal (finals still shown)")
 
     def emit(self, cap: Caption) -> None:
         from rich.text import Text
