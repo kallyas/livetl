@@ -233,7 +233,7 @@ class Pipeline:
             t0 = time.monotonic()
             try:
                 tr: Transcript = self.asr.transcribe(
-                    seg.audio, self.source_lang, self.whisper_task
+                    seg.audio, self.source_lang, self.whisper_task, quick=not seg.final
                 )
             except Exception:
                 log.exception("ASR failed on %.1fs of audio", seg.duration)
