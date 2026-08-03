@@ -250,13 +250,24 @@ at a time and then waits for the speaker, so a T4 running `large-v3-turbo`
 sits idle most of the time. Using the card fully means spending that idle
 capacity on accuracy.
 
-Roughly in order of value per unit of idle GPU:
+**Pick accuracy or responsiveness, not both.** Stacking every option starves
+the pipeline — measured on a T4 with `large-v3 --beam-size 5 --partials`,
+caption lag climbed past 20 seconds and kept growing.
+
+Accuracy, for following what is actually being said:
 
 ```python
-!bash colab.sh run https://twitch.tv/CHANNEL --source ja --target en \
+!bash colab.sh run https://twitch.tv/CHANNEL --source zh --target en \
     --model large-v3 --beam-size 5 \
     --mt nllb --nllb-model facebook/nllb-200-distilled-1.3B --mt-device cuda \
-    --partials --soft-max 4 --timing
+    --soft-max 4 --timing
+```
+
+Responsiveness, for captions that track a conversation:
+
+```python
+!bash colab.sh run https://twitch.tv/CHANNEL --source zh --target en \
+    --model large-v3-turbo --partials --soft-max 4 --timing
 ```
 
 - **`--model large-v3`** instead of turbo. Turbo has 4 decoder layers against
@@ -269,10 +280,15 @@ Roughly in order of value per unit of idle GPU:
 - **A larger MT model.** `nllb-200-distilled-1.3B` is ~2.6 GB in float16 and
   clearly better than the 600M default on casual speech; both still fit
   alongside `large-v3`.
-- **`--partials`** roughly doubles ASR load to show interim text. On a T4 that
-  load is free, and it is the single biggest improvement to how responsive the
-  captions *feel*.
+- **`--partials`** is the biggest improvement to how responsive captions
+  *feel*, but it is not free: it fires every ~1.2s of speech, so it multiplies
+  the number of ASR calls no matter how cheap each one is. Partials always
+  decode greedily even when `--beam-size` is set, since they are discarded
+  within a second — but pair them with turbo, not with `large-v3` and a beam.
 - **`--soft-max 4`** cuts monologues into captions sooner. Costs nothing.
+- **`--initial-prompt`** biases style and vocabulary. Whisper will otherwise
+  drift between Traditional and Simplified mid-stream on Chinese; a short
+  sentence in the script you want anchors it. Useful for names and jargon too.
 
 T4-specific notes:
 
@@ -347,6 +363,14 @@ audio — Zoom, a local video file, DRM-protected players streamlink can't touch
 - **Machine translation of casual speech is rough.** ASR disfluencies compound
   with MT, and streamer slang is not in these models' training data. Prefer NLLB
   or Google for Japanese.
+- **Chinese drifts between Traditional and Simplified**, sometimes within one
+  stream, because each utterance is recognised independently and Whisper picks
+  a script per window. `--initial-prompt` with a sentence in the script you
+  want is the usual fix.
+- **Partials only render on a terminal.** They are an in-place preview, so in
+  a notebook, a pipe or a log file there is nothing to redraw and they are
+  suppressed rather than printed as hundreds of near-duplicate lines. Finals
+  are unaffected.
 - **8 GB is tight, and NLLB is what makes it tight.** Whisper `small` + NLLB
   (2.4 GB) runs, but under memory pressure ASR degraded from RTF 0.08x to
   1.24x — i.e. slower than realtime, at which point the pipeline starts
