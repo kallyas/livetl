@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.jsonl
+subs.txt
+.ruff_cache/
+livetl.env
